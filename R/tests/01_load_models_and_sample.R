@@ -1,7 +1,7 @@
 library(rstan)
 
 # Toy sample --------------------------------------------------------------
-SIZE = 20
+SIZE = 25
 set.seed(1995)
 
 x1 <- rnorm(SIZE)
@@ -17,7 +17,6 @@ y <- X %*% b_true + rnorm(SIZE, sd=sigma_true)
 g <- nrow(X)
 Sigma <- solve(t(X) %*% X)
 
-
 data = list(
   n = nrow(X),
   p = ncol(X),
@@ -28,69 +27,31 @@ data = list(
   mu_b = rep(0, 4)
 )
 
-# g = n, log(sigma) ~ uniform
-fit = sampling(
-  readRDS(here::here("models", "model_1.rds")), 
-  data = data,
-  refresh = 0
-)
-pairs(fit, pars = c("beta", "sigma"), main = "Model 1")
+WIDTH = 3000
+HEIGHT = 2400
+RES = 300
 
-# g = n, sigma ~ exp(1 / sd(y))
-fit = sampling(
-  readRDS(here::here("models", "model_2.rds")), 
-  data = data,
-  refresh = 0
-)
-pairs(fit, pars = c("beta", "sigma"), main = "Model 2")
-
-# g = n, sigma ~ sigma ~ student_t(nu = 4, sigma = sd(y))
-fit = sampling(
-  readRDS(here::here("models", "model_3.rds")), 
-  data = data,
-  refresh = 0
-)
-pairs(fit, pars = c("beta", "sigma"), main = "Model 3")
-
-# From here we don't have fixed 'g'.
-data[["g"]] = NULL
-
-# g ~ student_t(3, 0, 3), log(sigma) ~ uniform
-fit = sampling(
-  readRDS(here::here("models", "model_4.rds")), 
-  data = data,
-  refresh = 0
-)
-pairs(fit, pars = c("beta", "sigma"), main = "Model 4")
-
-# g ~ student_t(3, 0, 3), sigma ~ exp(1 / sd(y))
-fit = sampling(
-  readRDS(here::here("models", "model_5.rds")), 
-  data = data,
-  refresh = 0
-)
-pairs(fit, pars = c("beta", "sigma"), main = "Model 5")
-
-# g ~ student_t(3, 0, 3), sigma ~ student_t(nu = 4, sigma = sd(y))
-fit = sampling(
-  readRDS(here::here("models", "model_6.rds")), 
-  data = data,
-  refresh = 0
-)
-pairs(fit, pars = c("beta", "sigma"), main = "Model 6")
-
-# Independent N(0, 1) priors for all, sigma ~ exp(1 / sd(y))
-fit = sampling(
-  readRDS(here::here("models", "model_7.rds")), 
-  data = data,
-  refresh = 0
-)
-pairs(fit, pars = c("beta", "sigma"), main = "Model 7")
-
-# Independent N(0, 2.5) priors for all, sigma ~ exp(1 / sd(y))
-fit = sampling(
-  readRDS(here::here("models", "model_8.rds")), 
-  data = data,
-  refresh = 0
-)
-pairs(fit, pars = c("beta", "sigma"), main = "Model 8")
+for (i in 1:8) {
+  cat("Sampling and plotting model", i, "...\n")
+  fit = sampling(
+    readRDS(here::here("models", paste0("model_", i, ".rds"))), 
+    data = data,
+    refresh = 0
+  )
+  # Prior
+  png(
+    here::here("tests", "plots", paste0("prior_m", i, ".png")), 
+    width = WIDTH, height = HEIGHT, res = RES
+  )
+  pairs(fit, pars = c("beta_p", "sigma_p"), main = paste0("Prior M", i))
+  dev.off() 
+  # Posterior
+  png(
+    here::here("tests", "plots", paste0("posterior_m", i, ".png")), 
+    width = WIDTH, height = HEIGHT, res = RES
+  )
+  pairs(fit, pars = c("beta", "sigma"), main = paste0("Posterior M", i))
+  dev.off() 
+  cat("Done!\n")
+}
+  

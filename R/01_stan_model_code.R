@@ -11,13 +11,10 @@ StanModelCode = R6::R6Class(
       check_block_order = !block %in% names(self$model)
       name = line$name
       line$name = NULL
-      if (line$type == "assignment") name = paste0(name, " =")
       self$model[[block]][[name]] = line
-      
       if (check_block_order) {
-        private$sort_blocks()
+        self$sort_blocks()
       }
-      
     },
     add_lines = function(block, lines) {
       for (line in lines) {
@@ -34,6 +31,10 @@ StanModelCode = R6::R6Class(
     },
     remove_block = function(block) {
       self$model[[block]] = NULL
+    },
+    
+    sort_blocks = function() {
+      self$model = self$model[match(private$order, names(self$model))]
     },
     make_stan_code = function() {
       code_list = mapply(
@@ -55,7 +56,12 @@ StanModelCode = R6::R6Class(
     }
   ),
   private = list(
-    order = c("data", "parameters", "transformed parameters", "model"),
+    
+    order = c(
+      "data", "parameters", "transformed parameters", "model", 
+      "generated quantities"
+    ),
+    
     make_line = function(name, props) {
       lower = "lower" %in% names(props)
       upper = "upper" %in% names(props)
@@ -71,7 +77,11 @@ StanModelCode = R6::R6Class(
       }
       
       if (props$type %in% c("int", "real")) {
-        str = glue::glue("{props$type}{bounds} {name}")
+        if ("dims" %in% names(props)) {
+          str = glue::glue("{props$type}{bounds} {name}{props$dims}")
+        } else {
+          str = glue::glue("{props$type}{bounds} {name}")
+        }
       } else if (props$type == "vector") {
         str = glue::glue("vector[{props$rows}]{bounds} {name}")
       } else if (props$type == "matrix") {
@@ -83,10 +93,11 @@ StanModelCode = R6::R6Class(
       } else {
         stop("Unrecognized data type ", props$type)
       }
+      
+      if ("assignment" %in% names(props)) {
+        str = glue("{str} = {props$assignment}")
+      }
       paste0(str, ";")
-    },
-    sort_blocks = function() {
-      self$model = self$model[match(names(self$model), private$order)]
     }
   )
 )

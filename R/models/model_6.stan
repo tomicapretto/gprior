@@ -14,6 +14,12 @@ parameters {
 model {
   beta ~ multi_normal(mu_b, g * pow(sigma, 2) * mu_Sigma);
   y ~ normal(to_vector(X * beta), sigma);
-  g ~ student_t(3, 0, 3);
+  g ~ student_t(3, 0, 4);
   sigma ~ student_t(4, 0, sd(y));
+}
+generated quantities {
+  real sigma_p = fabs(student_t_rng(4, 0, sd(y)));
+  real g_p = fabs(student_t_rng(3, 0, 4));
+  vector[p] beta_p = multi_normal_rng(mu_b, g_p * pow(sigma_p, 2) * mu_Sigma);
+  real y_p[n] = normal_rng(to_vector(X * beta_p), sigma_p);
 }
