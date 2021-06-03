@@ -1,3 +1,5 @@
 .ipynb_checkpoints/
 R/.Rproj.user/**
+*.rds
+*.txt
 .Rproj.user

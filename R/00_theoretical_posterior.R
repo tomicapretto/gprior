@@ -1,3 +1,6 @@
+# This script checks that the implementation of the classic g-prior in Stan
+# matches the theoretical posterior.
+
 # Libraries ---------------------------------------------------------------
 library(ggplot2)
 library(rstan)
