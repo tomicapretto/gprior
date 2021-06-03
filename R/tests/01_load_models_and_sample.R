@@ -1,21 +1,21 @@
 library(rstan)
 
 # Toy sample --------------------------------------------------------------
-SIZE = 25
+SIZE = 30
 set.seed(1995)
 
-x1 <- rnorm(SIZE)
-x2 <- 0.35 + 0.15 * x1 + rnorm(SIZE)
-x3 <- 0.5 + 0.3 * x1 + 0.2 * x2 + rnorm(SIZE)
-x4 <- -0.7 + 0.2 * x1 + 0.1 * x3 + rnorm(SIZE)
+x1 = rnorm(SIZE)
+x2 = 0.35 + 0.15 * x1 + rnorm(SIZE)
+x3 = 0.5 + 0.3 * x1 + 0.2 * x2 + rnorm(SIZE)
+x4 = -0.7 + 0.2 * x1 + 0.1 * x3 + rnorm(SIZE)
 
-X <- cbind(x1, x2, x3, x4)
-X <- scale(X)
-b_true <- c(2, 0.8, -1.5, -0.3)
-sigma_true <- 2
-y <- X %*% b_true + rnorm(SIZE, sd=sigma_true)
-g <- nrow(X)
-Sigma <- solve(t(X) %*% X)
+X = cbind(x1, x2, x3, x4)
+X = scale(X)
+b_true = c(2, 0.8, -1.5, -0.3)
+sigma_true = 2
+y = X %*% b_true + rnorm(SIZE, sd=sigma_true)
+g = nrow(X)
+Sigma = solve(t(X) %*% X)
 
 data = list(
   n = nrow(X),
