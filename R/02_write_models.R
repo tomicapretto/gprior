@@ -46,39 +46,8 @@ stan_code$add_line(
 stan_code$add_lines(
   block = "model",
   lines = list(
-    list(name = "log_sigma_sq", type = "dist", dist = "uniform", args = c(-5, 5)),
     list(name = "beta", type = "dist", dist = "multi_normal", args = c("mu_b", "g * pow(sigma, 2) * mu_Sigma")),
     list(name = "y", type = "dist", dist = "normal", args = c("to_vector(X * beta)", "sigma"))
-  )
-)
-
-# Generated quantities
-stan_code$add_lines(
-  block = "generated quantities",
-  lines = list(
-    list(
-      name = "log_sigma_sq_p", 
-      type = "real", 
-      assignment = "uniform_rng(-5, 5)"
-    ),
-    list(
-      name = "sigma_p", 
-      type = "real", 
-      lower = 0, 
-      assignment = "sqrt(exp(log_sigma_sq_p))"
-    ),
-    list(
-      name = "beta_p", 
-      type = "vector", 
-      rows = "p", 
-      assignment = "multi_normal_rng(mu_b, g * pow(sigma_p, 2) * mu_Sigma)"
-    ),
-    list(
-      name = "y_p", 
-      type = "real", 
-      dims = "[n]",
-      assignment = "normal_rng(to_vector(X * beta_p), sigma_p)"
-    )
   )
 )
 
@@ -113,12 +82,28 @@ stan_code$add_line(
     args = "1 / sd(y)"
   )
 )
-stan_code$add_line(
-  "generated quantities", 
-  list(
-    name = "sigma_p", 
-    type = "real", 
-    assignment = "exponential_rng(1/sd(y))"
+
+# Generated quantities
+stan_code$add_lines(
+  block = "generated quantities",
+  lines = list(
+    list(
+      name = "sigma_p", 
+      type = "real", 
+      assignment = "exponential_rng(1 / sd(y))"
+    ),
+    list(
+      name = "beta_p", 
+      type = "vector", 
+      rows = "p", 
+      assignment = "multi_normal_rng(mu_b, g * pow(sigma_p, 2) * mu_Sigma)"
+    ),
+    list(
+      name = "y_p", 
+      type = "real", 
+      dims = "[n]",
+      assignment = "normal_rng(to_vector(X * beta_p), sigma_p)"
+    )
   )
 )
 
@@ -145,7 +130,6 @@ stan_code$add_line(
     assignment = "fabs(student_t_rng(4, 0, sd(y)))"
   )
 )
-
 model_3_code = stan_code$make_stan_code()
 write_file(model_3_code, here::here("models", "model_3.stan"))
 saveRDS(stan_model(model_code = model_3_code), here::here("models", "model_3.rds"))
@@ -171,12 +155,6 @@ stan_code$add_line(
   line = list(name = "sigma", type = "real", lower = 0, assignment = "sqrt(exp(log_sigma_sq))")
 )
 
-# Add log_sigma_sq
-stan_code$add_line(
-  "model", 
-  list(name = "log_sigma_sq", type = "dist", dist = "uniform", args = c(-5, 5))
-)
-
 # Add prior for g
 stan_code$add_line(
   "model", 
@@ -185,19 +163,31 @@ stan_code$add_line(
 
 # Generated quantities
 stan_code$remove_block("generated quantities")
+stan_code$sort_blocks()
+
+model_4_code = stan_code$make_stan_code()
+write_file(model_4_code, here::here("models", "model_4.stan"))
+saveRDS(stan_model(model_code = model_4_code), here::here("models", "model_4.rds"))
+
+# Model 5 -----------------------------------------------------------------
+# g ~ student_t(3, 0, 4), sigma ~ exp(1 / sd(y))
+stan_code$remove_block("transformed parameters")
+stan_code$remove_line("parameters", "log_sigma_sq")
+stan_code$remove_line("model", "log_sigma_sq")
+
+stan_code$add_line("parameters", list(name = "sigma", type = "real", lower = 0))
+stan_code$add_line("model", list(name = "sigma", type = "dist", dist = "exponential", args = "1 / sd(y)"))
+
+stan_code$remove_line("generated quantities", "log_sigma_sq_p")
+
 stan_code$add_lines(
   block = "generated quantities",
   lines = list(
     list(
-      name = "log_sigma_sq_p", 
-      type = "real", 
-      assignment = "uniform_rng(-5, 5)"
-    ),
-    list(
       name = "sigma_p", 
       type = "real", 
-      lower = 0, 
-      assignment = "sqrt(exp(log_sigma_sq_p))"
+      lower = 0,
+      assignment = "exponential_rng(1/sd(y))"
     ),
     list(
       name = "g_p", 
@@ -219,32 +209,6 @@ stan_code$add_lines(
   )
 )
 
-stan_code$sort_blocks()
-
-model_4_code = stan_code$make_stan_code()
-write_file(model_4_code, here::here("models", "model_4.stan"))
-saveRDS(stan_model(model_code = model_4_code), here::here("models", "model_4.rds"))
-
-# Model 5 -----------------------------------------------------------------
-# g ~ student_t(3, 0, 4), sigma ~ exp(1 / sd(y))
-stan_code$remove_block("transformed parameters")
-stan_code$remove_line("parameters", "log_sigma_sq")
-stan_code$remove_line("model", "log_sigma_sq")
-
-stan_code$add_line("parameters", list(name = "sigma", type = "real", lower = 0))
-stan_code$add_line("model", list(name = "sigma", type = "dist", dist = "exponential", args = "1 / sd(y)"))
-
-stan_code$remove_line("generated quantities", "log_sigma_sq_p")
-stan_code$add_line(
-  "generated quantities", 
-  list(
-    name = "sigma_p", 
-    type = "real", 
-    lower = 0,
-    assignment = "exponential_rng(1/sd(y))"
-  )
-)
-
 model_5_code = stan_code$make_stan_code()
 write_file(model_5_code, here::here("models", "model_5.stan"))
 saveRDS(stan_model(model_code = model_5_code), here::here("models", "model_5.rds"))
@@ -255,7 +219,6 @@ stan_code$add_line(
   "model", 
   list(name = "sigma", type = "dist", dist = "student_t", args = c("4", "0", "sd(y)"))
 )
-
 stan_code$add_line(
   "generated quantities", 
   list(
@@ -270,12 +233,40 @@ write_file(model_6_code, here::here("models", "model_6.stan"))
 saveRDS(stan_model(model_code = model_6_code), here::here("models", "model_6.rds"))
 
 # Model 7 -----------------------------------------------------------------
-# Independent N(0, 1) priors for all (Gelman's advice)
+
+# This aims to use independent normal priors with sd = b_sd * sd(y), where 'b_sd'
+# is a constant we specify. b_sd = 1 is suggested by Gelman and c = 2.5 is used
+# in rstanarm. Note that rstanarm docs use sd(y)/sd(x). We don't need to divide
+# by "x" because the predictors are standardized.
 stan_code$remove_line("data", "mu_Sigma")
 stan_code$remove_line("parameters", "g")
 stan_code$remove_line("model", "g")
-stan_code$add_line("model", list(name = "beta", type = "dist", dist = "normal", args = c("mu_b", 1)))
-stan_code$add_line("model", list(name = "sigma", type = "dist", dist = "exponential", args = "1 / sd(y)"))
+stan_code$add_line(
+  "data",
+  list(
+    name = "b_sd",
+    type = "real",
+    lower = 0
+  )
+)
+
+stan_code$add_lines(
+  "model", 
+  list(
+    list(
+      name = "beta", 
+      type = "dist", 
+      dist = "normal", 
+      args = c("mu_b", "b_sd * sd(y)")
+    ),
+    list(
+      name = "sigma",
+      type = "dist", 
+      dist = "exponential", 
+      args = "1 / sd(y)"
+    )
+  )
+)
 
 stan_code$remove_line("generated quantities", "g_p")
 stan_code$add_lines(
@@ -285,13 +276,13 @@ stan_code$add_lines(
       name = "sigma_p", 
       type = "real",
       lower = 0,
-      assignment = "exponential_rng(1/sd(y))"
+      assignment = "exponential_rng(1 / sd(y))"
     ),
     list(
       name = "beta_p", 
       type = "real", 
       dims = "[p]",
-      assignment = "normal_rng(mu_b, 1)"
+      assignment = "normal_rng(mu_b, b_sd * sd(y))"
     ),
     list(
       name = "y_p", 
@@ -307,17 +298,12 @@ write_file(model_7_code, here::here("models", "model_7.stan"))
 saveRDS(stan_model(model_code = model_7_code), here::here("models", "model_7.rds"))
 
 # Model 8 -----------------------------------------------------------------
-# Independent N(0, 2.5) priors for all (rstanarm approach)
-stan_code$add_line("model", list(name = "beta", type = "dist", dist = "normal", args = c("mu_b", 2.5)))
-stan_code$add_line(
-  "generated quantities",    
-  list(
-    name = "beta_p", 
-    type = "real", 
-    dims = "[p]",
-    assignment = "normal_rng(mu_b, 2.5)"
-  )
-)
+# Flat priors everywhere!
+
+stan_code$remove_block("generated quantities")
+stan_code$remove_line("data", "b_sd")
+stan_code$remove_line("model", "beta")
+stan_code$remove_line("model", "sigma")
 
 model_8_code = stan_code$make_stan_code()
 write_file(model_8_code, here::here("models", "model_8.stan"))

@@ -34,7 +34,9 @@ StanModelCode = R6::R6Class(
     },
     
     sort_blocks = function() {
-      self$model = self$model[match(private$order, names(self$model))]
+      new_pos = match(private$order, names(self$model))
+      new_pos = new_pos[!is.na(new_pos)]
+      self$model = self$model[new_pos]
     },
     make_stan_code = function() {
       code_list = mapply(
