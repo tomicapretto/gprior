@@ -3,101 +3,124 @@ Simulator = R6::R6Class(
   public = list(
     stan_model = NULL,
     pars = NULL,
-    data_f = NULL,
-    data_args = NULL,
+    generate_data = NULL,
     probs = c(0.025, 0.975),
+    results_params = list(),
+    results_sampler = list(),
     
-    initialize = function(stan_model, pars, data_f, data_args) {
+    initialize = function(stan_model, pars, generate_data) {
       self$stan_model = stan_model
       self$pars = pars
-      self$data_f = data_f
-      self$data_args = data_args
+      self$generate_data = generate_data
     },
     
     simulate = function(reps) {
       first = TRUE
+      pb = progress::progress_bar$new(total = reps)
       for (i in seq(reps)) {
         result = self$simulate_single()
         if (first) {
-          # Use the first run to allocate space for the parameter values
           self$make_containers(result, reps)
           first = FALSE
         }
-        self$append_result(result)
+        # Append parameter summaries
+        for (param in names(self$results_params)) {
+          self$results_params[[param]][i, ] = result$params[param, ]
+        }
+        # Append divergence count
+        self$results_sampler$divergences[i] = sum(sapply(
+          result$sampler, 
+          function(x) sum(x[, "divergent__"])
+        ))
+        pb$tick()
       }
-      
-      
     },
     
     simulate_single = function() {
       # Generate data
-      data = do.call(self$data_f, self$data_args)
+      data = self$generate_data()
       # Run sampler
-      fit = sampling(object = self$stan_model, data = data, referesh = 0)
-      # Compute summary
-      summary(fit, pars = self$pars, probs = self$probs)$summary
-      # Obtain sampler params 
+      fit = sampling(object = self$stan_model, data = data, refresh = 0)
+      # Return summary of the parameters and sampler diagnostics
+      return(
+        list(
+          params = summary(fit, pars = self$pars, probs = self$probs)$summary,
+          sampler = get_sampler_params(fit, inc_warmup = FALSE)
+        )
+      )
     },
     
     make_containers = function(results, reps) {
-      n_params = nrow(results$summary)
-      n_col_params = ncol(results$summary)
-      n_row_params = reps * 4
+      n_params = nrow(results$params)
+      n_col_params = ncol(results$params)
+      n_row_params = reps
       
       # Summaries about the marginal posteriors
       self$results_params = replicate(
         n_params, 
-        matrix(nrow = n_row_params, ncol = n_col_params), 
+        matrix(
+          nrow = n_row_params, 
+          ncol = n_col_params,
+          dimnames = list(NULL, colnames(results$params))
+        ), 
         simplify = FALSE
       )
-      names(self$results_params) = rownames(results$summary)
+      names(self$results_params) = rownames(results$params)
       
       # Information about the sampling process.
-      self$results_sampler = matrix(nrow = n_row_params * 4, ncol = 2)
-      
-      
-    },
-    
-    get_results = function() {
-      
+      # For now, only keep the count of divergences
+      self$results_sampler = list(
+        divergences = vector("numeric", reps)
+      )
     }
-    
   ),
-  
-  private = list(
-    
+  active = list(
+    results = function() {
+      list("params" = self$results_params, "sampler" = self$results_sampler)
+    }
   )
 )
 
+library(rstan)
+model = readRDS(here::here("models/model_1.rds"))
 
-# Things to consider when working with the output of stan models
+pars = c("beta", "sigma")
+generate_data = function() {
+  SIZE = 30
+
+  x1 = rnorm(SIZE)
+  x2 = 0.35 + 0.15 * x1 + rnorm(SIZE)
+  x3 = 0.5 + 0.3 * x1 + 0.2 * x2 + rnorm(SIZE)
+  x4 = -0.7 + 0.2 * x1 + 0.1 * x3 + rnorm(SIZE)
+  
+  X = cbind(x1, x2, x3, x4)
+  X = scale(X)
+  b_true = c(2, 0.8, -1.5, -0.3)
+  sigma_true = 2
+  y = X %*% b_true + rnorm(SIZE, sd=sigma_true)
+  g = nrow(X)
+  Sigma = solve(t(X) %*% X)
+  
+  list(
+    n = nrow(X),
+    p = ncol(X),
+    g = nrow(X),
+    y = as.vector(y),
+    X = X,
+    mu_Sigma = Sigma,
+    mu_b = rep(0, 4)
+  )
+}
 
 
-# Each column is a parameter, rows are all the draws (stacked)
-# matrix_of_draws <- as.matrix(fit)
+simulator = Simulator$new(model, pars, generate_data)
+simulator$simulate(100)
 
-# Obtain a summary of the fit
-# fit_summary <- summary(fit)
-
-# fit_summary$summary has info for chains merged.
-# Here we are going to take
-# mean, sd, 95% CI bounds, n_eff, and Rhat.
+# generate_data is a function that does not have any arguments
+# because it already has all the information needed to generate the sample
 
 # The 95% CI bounds are used to compute the length of the 95% intervals
 # and wheter the true value is contained or not. Coverage should be close to 
 # 95%.
 
-# We get a list with one matrix per chain (info is not combined)
-# sampler_params <- get_sampler_params(fit, inc_warmup = FALSE)
-# sampler_params_chain1 <- sampler_params[[1]]
-
-# Interesting things to compute
-# Sum of divergences using divergent__
-# Pct of accepted proposals? Don't know if this is important.
-# Ask Paul about other quantities.
-
 # model@mode -> must be 0 to indicate it sampled.
-
-summary(fit, pars = c("beta", "sigma"), probs = c(0.025, 0.975))$summary
-
-sampler_params = get_sampler_params(fit, inc_warmup = FALSE)
