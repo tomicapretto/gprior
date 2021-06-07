@@ -3,14 +3,16 @@ Simulator = R6::R6Class(
   public = list(
     stan_model = NULL,
     pars = NULL,
+    parsv = NULL,
     generate_data = NULL,
     probs = c(0.025, 0.975),
     results_params = list(),
     results_sampler = list(),
     
-    initialize = function(stan_model, pars, generate_data) {
+    initialize = function(stan_model, pars, parsv, generate_data) {
       self$stan_model = stan_model
       self$pars = pars
+      self$parsv = parsv
       self$generate_data = generate_data
     },
     
@@ -34,15 +36,35 @@ Simulator = R6::R6Class(
         ))
         pb$tick()
       }
+      
+      # Compute bias using posterior mean
+      # Compute MSE using posterior mean
+      for (par in names(self$parsv)) {
+        value = self$parsv[[par]]
+        if (length(value) > 1) {
+          for (i in seq(length(value))) {
+            name = glue::glue("{par}[{i}]")
+            self$results_params[[name]] = private$enrich_summary(
+              self$results_params[[name]], 
+              value[[i]]
+            )
+          }
+        } else {
+          self$results_params[[par]] = private$enrich_summary(
+            self$results_params[[par]], 
+            value
+          )
+        }
+      }
     },
-    
+  
     simulate_single = function() {
       # Generate data
       data = self$generate_data()
       # Run sampler
       fit = sampling(object = self$stan_model, data = data, refresh = 0)
       # Return summary of the parameters and sampler diagnostics
-      return(
+      return( 
         list(
           params = summary(fit, pars = self$pars, probs = self$probs)$summary,
           sampler = get_sampler_params(fit, inc_warmup = FALSE)
@@ -78,13 +100,22 @@ Simulator = R6::R6Class(
     results = function() {
       list("params" = self$results_params, "sampler" = self$results_sampler)
     }
+  ),
+  private = list(
+    # Take a summary matrix, adds bias, mse and coverage (0 or 1 for the PI)
+    enrich_summary = function(mm, value) {
+      bounds = paste0((self$probs * 100), "%")
+      bias = mm[, "mean"] - value
+      mse = bias ^ 2 + mm[, "sd"] ^ 2
+      coverage = ifelse(value >= mm[, bounds[1]] | value <= mm[, bounds[2]], 1, 0)
+      cbind(mm, bias, mse, coverage)
+    }
   )
 )
 
 library(rstan)
 model = readRDS(here::here("models/model_1.rds"))
 
-pars = c("beta", "sigma")
 generate_data = function() {
   SIZE = 30
 
@@ -100,7 +131,6 @@ generate_data = function() {
   y = X %*% b_true + rnorm(SIZE, sd=sigma_true)
   g = nrow(X)
   Sigma = solve(t(X) %*% X)
-  
   list(
     n = nrow(X),
     p = ncol(X),
@@ -112,15 +142,27 @@ generate_data = function() {
   )
 }
 
-
-simulator = Simulator$new(model, pars, generate_data)
-simulator$simulate(100)
+pars = c("beta", "sigma")
+parsv = list("beta" = c(2, 0.8, -1.5, -0.3), "sigma" = 2)
+simulator = Simulator$new(model, pars, parsv, generate_data)
+simulator$simulate(50)
 
 # generate_data is a function that does not have any arguments
 # because it already has all the information needed to generate the sample
 
-# The 95% CI bounds are used to compute the length of the 95% intervals
-# and wheter the true value is contained or not. Coverage should be close to 
-# 95%.
-
 # model@mode -> must be 0 to indicate it sampled.
+# mse: to see the bias-variance tradeoff
+
+# Notes
+# * Bias: is actually the bias of the posterior mean.
+# * MSE: same than above
+# * Coverage: It is 1 if the true value of the param is contained in the 95% PI.
+# * yhat?
+# * RMSE?
+
+# yhat -> mu = X %*% beta, where beta is a (vector) draw from the posterior
+#         sd = The one obtained from the posterior.
+#         rnorm(1, mu, sd)
+# RMSE -> sqrt(mean((yhat - y) ^ 2)) for each posterior sample
+#         Then I have a posterior of the RMSE, same for MSE, etc
+# See https://discourse.mc-stan.org/t/bayesian-rmse/13293/4
