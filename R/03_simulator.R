@@ -10,6 +10,11 @@ Simulator = R6::R6Class(
     results_sampler = list(),
     
     initialize = function(stan_model, pars, parsv, generate_data) {
+      # stan_model: A stan compiled model
+      # pars: Names of the parameters in the model (e.g. beta and sigma)
+      # parsv: Named list with the true values of the parameters in the model
+      # generate_data: Function without arguments that generates data passed to
+      #                rstan::sampling()
       self$stan_model = stan_model
       self$pars = pars
       self$parsv = parsv
@@ -147,22 +152,23 @@ parsv = list("beta" = c(2, 0.8, -1.5, -0.3), "sigma" = 2)
 simulator = Simulator$new(model, pars, parsv, generate_data)
 simulator$simulate(50)
 
-# generate_data is a function that does not have any arguments
-# because it already has all the information needed to generate the sample
+# See `simulator$results`
 
 # model@mode -> must be 0 to indicate it sampled.
-# mse: to see the bias-variance tradeoff
 
-# Notes
+## Notes
 # * Bias: is actually the bias of the posterior mean.
 # * MSE: same than above
 # * Coverage: It is 1 if the true value of the param is contained in the 95% PI.
 # * yhat?
 # * RMSE?
 
+## Things to add
 # yhat -> mu = X %*% beta, where beta is a (vector) draw from the posterior
 #         sd = The one obtained from the posterior.
 #         rnorm(1, mu, sd)
 # RMSE -> sqrt(mean((yhat - y) ^ 2)) for each posterior sample
 #         Then I have a posterior of the RMSE, same for MSE, etc
+# Cross validation
+
 # See https://discourse.mc-stan.org/t/bayesian-rmse/13293/4
