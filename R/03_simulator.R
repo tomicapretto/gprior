@@ -42,8 +42,7 @@ Simulator = R6::R6Class(
         pb$tick()
       }
       
-      # Compute bias using posterior mean
-      # Compute MSE using posterior mean
+      # Append other summaries such as bias, mse, coverage.
       for (par in names(self$parsv)) {
         value = self$parsv[[par]]
         if (length(value) > 1) {
