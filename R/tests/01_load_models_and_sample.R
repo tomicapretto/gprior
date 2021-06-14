@@ -109,4 +109,4 @@ png(
   width = WIDTH, height = HEIGHT, res = RES
 )
 pairs(fit, pars = c("beta", "sigma"), main = "Posterior M7, b_sd = 2.5")
-dev.off() 
+dev.off()

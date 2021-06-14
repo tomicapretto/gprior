@@ -1,3 +1,6 @@
+library(rstan)
+library(posterior)
+
 #' R6 Class Representing a Simulator
 #'
 #' @description
@@ -14,20 +17,15 @@ Simulator = R6::R6Class(
     #' @field params A list with names and values of the parameters in the model.
     #' @field sizes Sample sizes to use in the simulation.
     #' @field reps The number of repetitions.
-    #' @field planned A boolean that indicates if size and reps have been indicated.
-    #' @field results_params A list containing results about parameters in the model.get_elapsed_time(fit)
-    #' @field results_sampler A list containing results about the sampler.
     #' @field probs A vector of length two with the limits for the PI.
     model = NULL,
     generator = NULL,
     params = NULL,
     sizes = NULL,
     reps = NULL,
-    results_params = list(),
-    results_sampler = list(),
-    probs = c(0.025, 0.975),
     messages = vector("character"),
-    
+    probs = c(0.025, 0.975),
+   
     initialize = function(model, generator) {
       self$model = model
       self$generator = generator
@@ -56,16 +54,16 @@ Simulator = R6::R6Class(
         sampling(object = self$model, data = data, refresh = 0)
       }, 
       error = function(cnd) {
-        cat("An error occurred while sampling!!\n")
+        cat("An error occurred while sampling!!!\n")
         cat(cnd$message, "\n")
         cnd$message
       })
       
       if (is.character(fit)) return(fit)
-      
+     
       # Return summary of the parameters and sampler diagnostics
       list(
-        params = summary(fit, pars = names(self$params), probs = self$probs)$summary,
+        params = private$summarise_params(fit),
         sampler = get_sampler_params(fit, inc_warmup = FALSE),
         time = sum(get_elapsed_time(fit))
       )
@@ -93,7 +91,8 @@ Simulator = R6::R6Class(
         }
         # Append parameter summaries
         for (param in names(results$params)) {
-          results$params[[param]][i, ] = outcome$params[param, ]
+          
+          results$params[[param]][i, ] = as.matrix(subset(outcome$params, variable == param)[-1])
         }
         
         # Append divergence count
@@ -102,26 +101,6 @@ Simulator = R6::R6Class(
         pb$tick()
       }
       
-      # Append other summaries such as bias, mse, coverage.
-      for (param in names(self$params)) {
-        value = self$params[[param]]
-        if (length(value) > 1) {
-          # A parameter with more than length 1, like 'beta[1]', 'beta[2]', etc.
-          for (i in seq_along(value)) {
-            name = glue::glue("{param}[{i}]")
-            results$params[[name]] = private$enrich_summary(
-              results$params[[name]], 
-              value[[i]]
-            )
-          }
-        } else {
-          # A parameter with one value, like 'sigma'
-          results$params[[param]] = private$enrich_summary(
-            results$params[[param]], 
-            value
-          )
-        }
-      }
       return(results)
     },
     
@@ -135,6 +114,55 @@ Simulator = R6::R6Class(
   ),
   private = list(
     planned = FALSE,
+    
+    summarise_params = function(fit) {
+      # First of all, compute summaries using 'posterior' functions
+      draws = subset(as_draws(fit), names(self$params))
+      summary = private$summarise_draws(draws)
+      
+      # Compute RMSE
+      rmse = private$make_rmse_vector(fit, draws)
+      
+      # Sort RMSE according to order in summary and append to tibble
+      summary$rmse = rmse[match(summary$variable, names(rmse))]
+      summary
+    },
+    
+    make_rmse_vector = function(fit, draws) {
+      # Create empty vector
+      rmse = vector("numeric", length(unlist(self$params)))
+      # Get names of the empty vector
+      new_names = sapply(names(self$params), function(name) {
+        times = length(self$params[[name]])
+        if (times > 1) {
+          as.character(glue::glue("{name}[{seq_len(times)}]"))
+        } else {
+          name
+        }
+      })
+      names(rmse) = unlist(unname(new_names))
+      # Compute RMSE
+      start = 1
+      end = 0
+      for (name in names(self$params)) {
+        coef_true = self$params[[name]]
+        end = end + length(coef_true)
+        draws = extract(fit, name)[[name]]
+        draws = matrix(draws, dim(draws)[1])
+        rmse[start:end] = private$get_rmse(draws, coef_true)
+        start = end + 1
+      }
+      rmse
+    },
+    
+    get_rmse = function(draws, coef_true) {
+      sqrt(colMeans(sweep(draws, 2, coef_true, function(x, y) (x - y) ^ 2)))
+    },
+
+    summarise_draws = function(draws) {
+      probs = c(0.025, 0.05, 0.1, 0.2, 0.25, 0.75, 0.8, 0.9, 0.95, 0.975)
+      summarise_draws(draws, mean, sd, ess_bulk, rhat, ~quantile2(.x, probs))
+    },
     
     # Take a summary matrix, adds bias, mse and coverage (0 or 1 for the PI)
     enrich_summary = function(mm, value) {
@@ -156,7 +184,7 @@ Simulator = R6::R6Class(
       # How many parameters are in the model
       n_params = nrow(results$params)
       # How many columns we put in the result matrix for each parameter.
-      n_col_params = ncol(results$params)
+      n_col_params = ncol(results$params) - 1
       # How many rows we put in the results matrix for each parameter.
       n_row_params = self$reps
       
@@ -166,11 +194,11 @@ Simulator = R6::R6Class(
         matrix(
           nrow = n_row_params, 
           ncol = n_col_params,
-          dimnames = list(NULL, colnames(results$params))
+          dimnames = list(NULL, colnames(results$params)[-1])
         ), 
         simplify = FALSE
       )
-      names(params) = rownames(results$params)
+      names(params) = results$params$variable
       
       # Information about the sampling process.
       sampler = list(
