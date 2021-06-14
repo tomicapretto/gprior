@@ -1,5 +1,9 @@
-library(rstan)
 library(posterior)
+library(rstan)
+
+between = function(x, l, r) {
+  l < x & x < r
+}
 
 #' R6 Class Representing a Simulator
 #'
@@ -115,62 +119,83 @@ Simulator = R6::R6Class(
   private = list(
     planned = FALSE,
     
-    summarise_params = function(fit) {
-      # First of all, compute summaries using 'posterior' functions
-      draws = subset(as_draws(fit), names(self$params))
-      summary = private$summarise_draws(draws)
-      
-      # Compute RMSE
-      rmse = private$make_rmse_vector(fit, draws)
-      
-      # Sort RMSE according to order in summary and append to tibble
-      summary$rmse = rmse[match(summary$variable, names(rmse))]
-      summary
+    extract = function(fit) {
+      x = do.call(cbind, extract(fit, pars = names(self$params)))
+      colnames(x) = private$make_param_names()
+      x
     },
     
-    make_rmse_vector = function(fit, draws) {
-      # Create empty vector
-      rmse = vector("numeric", length(unlist(self$params)))
-      # Get names of the empty vector
-      new_names = sapply(names(self$params), function(name) {
-        times = length(self$params[[name]])
-        if (times > 1) {
-          as.character(glue::glue("{name}[{seq_len(times)}]"))
+    make_param_names = function() {
+      fun = function(name, value) {
+        n = length(value)
+        if (n > 1) {
+          as.character(glue::glue("{name}[{seq_len(n)}]"))
         } else {
           name
         }
-      })
-      names(rmse) = unlist(unname(new_names))
-      # Compute RMSE
-      start = 1
-      end = 0
-      for (name in names(self$params)) {
-        coef_true = self$params[[name]]
-        end = end + length(coef_true)
-        draws = extract(fit, name)[[name]]
-        draws = matrix(draws, dim(draws)[1])
-        rmse[start:end] = private$get_rmse(draws, coef_true)
-        start = end + 1
       }
-      rmse
+      unname(unlist(mapply(fun, names(self$params), self$params)))
     },
+    
+    summarise_params = function(fit) {
+      # Compute summaries using 'posterior' functions
+      summary = private$summarise_draws(subset(as_draws(fit), names(self$params)))
+      # Sort according to parameter names
+      summary = summary[match(private$make_param_names(), summary$variable), ]
+      
+      # The following require the whole posterior and the true param values
+      param_values = unname(unlist(self$params))
+      posterior = private$extract(fit)
+      
+      # Compute RMSE
+      rmse = private$get_rmse(posterior, param_values)
+      # Compute ???
+      prob = private$get_prob(posterior, param_values)
+      # Compute bias 
+      bias = private$get_bias(posterior, param_values)
+      
+      # Append computations
+      summary$bias = bias
+      summary$rmse = rmse
+      summary$prob = prob
+      
+      # Derive coverage indicators
+      summary$P50 = ifelse(between(param_values, summary$q25, summary$q75), 1, 0)
+      summary$P80 = ifelse(between(param_values, summary$q10, summary$q90), 1, 0)
+      summary$P90 = ifelse(between(param_values, summary$q5, summary$q95), 1, 0)
+      summary$P95 = ifelse(between(param_values, summary$q2.5, summary$q97.5), 1, 0)
+      
+      drop = paste0("q", c(2.5, 5, 10, 25, 75, 90, 95, 97.5))
+      summary = summary[!colnames(summary) %in% drop]
+      summary
+    },
+    
+    
+    get_coverage = function(draws, coef_true, probs) {
+      # Probs is a list with vectors of length 2
+      lapply(probs, function(x) {
+        quantile()
+      })
+    },
+    
+    
     
     get_rmse = function(draws, coef_true) {
       sqrt(colMeans(sweep(draws, 2, coef_true, function(x, y) (x - y) ^ 2)))
     },
-
-    summarise_draws = function(draws) {
-      probs = c(0.025, 0.05, 0.1, 0.2, 0.25, 0.75, 0.8, 0.9, 0.95, 0.975)
-      summarise_draws(draws, mean, sd, ess_bulk, rhat, ~quantile2(.x, probs))
+    
+    get_prob = function(draws, coef_true) {
+      # I dont remember the name of this quantity, P(beta_posterior < beta_true)
+      colMeans(sweep(draws, 2, coef_true, FUN = "<"))
     },
     
-    # Take a summary matrix, adds bias, mse and coverage (0 or 1 for the PI)
-    enrich_summary = function(mm, value) {
-      bounds = paste0((self$probs * 100), "%")
-      bias = mm[, "mean"] - value
-      mse = bias ^ 2 + mm[, "sd"] ^ 2
-      coverage = ifelse(value >= mm[, bounds[1]] | value <= mm[, bounds[2]], 1, 0)
-      cbind(mm, bias, mse, coverage)
+    get_bias = function(draws, coef_true) {
+      colMeans(sweep(draws, 2, coef_true, FUN = "-"))
+    },
+
+    summarise_draws = function(draws) {
+      probs = c(0.025, 0.05, 0.1,  0.25, 0.75, 0.9, 0.95, 0.975)
+      summarise_draws(draws, mean, sd, ess_bulk, rhat, ~quantile2(.x, probs))
     },
     
     #' @description
@@ -263,6 +288,7 @@ REPS = 10
 simulator = Simulator$new(model, generator)
 simulator$make_plan(SIZES, REPS)
 results = simulator$simulate()
+
 
 
 
