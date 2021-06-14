@@ -10,36 +10,28 @@ Simulator = R6::R6Class(
   "Simulator",
   public = list(
     #' @field model Stan model.
-    #' @field pars Names of the parameters in the model.
-    #' @fiels parsv Named list with the true values of the parameters in the model.
-    #' @field generate_data A function that receives a sample size value, simulates
-    #' data, and returns a list with all the data needed by the model.
+    #' @field generator A DataGenerator object.
+    #' @field params A list with names and values of the parameters in the model.
     #' @field sizes Sample sizes to use in the simulation.
-    #' @field reps A vector with repetitions to with each sample size. Must be of the same size than sizes. 
+    #' @field reps The number of repetitions.
     #' @field planned A boolean that indicates if size and reps have been indicated.
-    #' @field results_params A list containing results about parameters in the model.
+    #' @field results_params A list containing results about parameters in the model.get_elapsed_time(fit)
     #' @field results_sampler A list containing results about the sampler.
+    #' @field probs A vector of length two with the limits for the PI.
     model = NULL,
-    pars = NULL,
-    parsv = NULL,
-    generate_data = NULL,
+    generator = NULL,
+    params = NULL,
     sizes = NULL,
     reps = NULL,
-    planned = FALSE,
     results_params = list(),
     results_sampler = list(),
     probs = c(0.025, 0.975),
+    messages = vector("character"),
     
-    initialize = function(stan_model, pars, parsv, generate_data) {
-      # stan_model: A stan compiled model
-      # pars: Names of the parameters in the model (e.g. beta and sigma)
-      # parsv: Named list with the true values of the parameters in the model
-      # generate_data: Function without arguments that generates data passed to
-      #                rstan::sampling()
-      self$stan_model = stan_model
-      self$pars = pars
-      self$parsv = parsv
-      self$generate_data = generate_data
+    initialize = function(model, generator) {
+      self$model = model
+      self$generator = generator
+      self$params = generator$params
     },
     
     #' @description
@@ -47,10 +39,9 @@ Simulator = R6::R6Class(
     #' @param sizes Sample sizes to use in the simulation.
     #' @param reps Repetitions used with each sample size. Must be of the same size than sizes.      
     make_plan = function(sizes, reps) {
-      if (length(sizes) != length(reps)) stop("length(sizes) != length(reps).")
       self$sizes = sizes
       self$reps = reps
-      self$planned = TRUE
+      private$planned = TRUE
     },
     
     #' @description 
@@ -58,15 +49,25 @@ Simulator = R6::R6Class(
     #' @param size Sample size used in this run.
     simulate_single = function(size) {
       # Generate data
-      data = self$generate_data(size)
+      data = self$generator$data(size)
+      
       # Run sampler
-      fit = sampling(object = self$stan_model, data = data, refresh = 0)
+      fit = tryCatch({
+        sampling(object = self$model, data = data, refresh = 0)
+      }, 
+      error = function(cnd) {
+        cat("An error occurred while sampling!!\n")
+        cat(cnd$message, "\n")
+        cnd$message
+      })
+      
+      if (is.character(fit)) return(fit)
+      
       # Return summary of the parameters and sampler diagnostics
-      return( 
-        list(
-          params = summary(fit, pars = self$pars, probs = self$probs)$summary,
-          sampler = get_sampler_params(fit, inc_warmup = FALSE)
-        )
+      list(
+        params = summary(fit, pars = names(self$params), probs = self$probs)$summary,
+        sampler = get_sampler_params(fit, inc_warmup = FALSE),
+        time = sum(get_elapsed_time(fit))
       )
     },
     
@@ -74,92 +75,67 @@ Simulator = R6::R6Class(
     #' Simulate 'reps' repetitions for a sample of size 'size'.
     #' @param size The size used in each of the repetitions.
     #' @param reps The number of repetitions.
-    simulate = function(size, reps) {
+    simulate_for_size = function(size) {
       first = TRUE
-      size_char = as.character(size)
-      pb = progress::progress_bar$new(total = reps)
-      
-      cat(glue::glue("Simulating with size: {size} and reps: {reps}\n"))
-      for (i in seq(reps)) {
-        result = self$simulate_single(size)
+      print(glue::glue("Simulating with size: {size} and reps: {self$reps}\n"))
+      pb = progress::progress_bar$new(total = self$reps)
+
+      for (i in seq(self$reps)) {
+        outcome = self$simulate_single(size)
+        # When sampler fails, skip rest of loop and record message.
+        if (is.character(outcome)) {
+          self$messages = outcome
+          next
+        }
         if (first) {
-          self$make_containers(result, reps)
+          results = private$make_containers(outcome)
           first = FALSE
         }
-        
         # Append parameter summaries
-        for (param in names(self$results_params)) {
-          self$results_params[[size_char]][[param]][i, ] = result$params[param, ]
+        for (param in names(results$params)) {
+          results$params[[param]][i, ] = outcome$params[param, ]
         }
         
         # Append divergence count
-        self$results_sampler[[size_char]]$divergences[i] = private$get_divergences(result$sampler)
+        results$sampler$divergences[i] = private$get_divergences(outcome$sampler)
+        results$sampler$time[i] = outcome$time
         pb$tick()
       }
       
       # Append other summaries such as bias, mse, coverage.
-      for (par in names(self$parsv)) {
-        value = self$parsv[[par]]
+      for (param in names(self$params)) {
+        value = self$params[[param]]
         if (length(value) > 1) {
+          # A parameter with more than length 1, like 'beta[1]', 'beta[2]', etc.
           for (i in seq_along(value)) {
-            name = glue::glue("{par}[{i}]")
-            self$results_params[[size_char]][[name]] = private$enrich_summary(
-              self$results_params[[size_char]][[name]], 
+            name = glue::glue("{param}[{i}]")
+            results$params[[name]] = private$enrich_summary(
+              results$params[[name]], 
               value[[i]]
             )
           }
         } else {
-          self$results_params[[size_char]][[par]] = private$enrich_summary(
-            self$results_params[[size_char]][[par]], 
+          # A parameter with one value, like 'sigma'
+          results$params[[param]] = private$enrich_summary(
+            results$params[[param]], 
             value
           )
         }
       }
+      return(results)
     },
-  
-    make_containers = function(results) {
-      # How many different sample sizes we're using.
-      n_sizes = self$sizes
-      # How many parameters are in the model
-      n_params = nrow(results$params)
-      # How many columns we put in the result matrix for each parameter.
-      n_col_params = ncol(results$params)
-      # How many rows we put in the results matrix for each parameter.
-      n_row_params = self$reps
-      
-      helper = function() {
-        results = replicate(
-          n_params, 
-          matrix(
-            nrow = n_row_params, 
-            ncol = n_col_params,
-            dimnames = list(NULL, col_names)
-          ), 
-          simplify = FALSE
-        )
-        names(results) = rownames(results$params)
-      }
-      
-      # Summaries about the marginal posteriors, for each sample size.
-      self$results_params = replicate(n_sizes, helper(), simplify = FALSE)
-      
-      # Information about the sampling process.
-      # For now, only keep the count of divergences
-      self$results_sampler = replicate(
-        n_sizes,
-        list(
-          divergences = vector("numeric", self$reps)
-        ),
-        simplify = FALSE
-      )
-    }
-  ),
-  active = list(
-    results = function() {
-      list("params" = self$results_params, "sampler" = self$results_sampler)
+    
+    # Main function
+    simulate = function() {
+      if (!private$planned) stop("Plan the simulation first!!")
+      results = lapply(self$sizes, self$simulate_for_size)
+      names(results) = self$sizes
+      results
     }
   ),
   private = list(
+    planned = FALSE,
+    
     # Take a summary matrix, adds bias, mse and coverage (0 or 1 for the PI)
     enrich_summary = function(mm, value) {
       bounds = paste0((self$probs * 100), "%")
@@ -169,8 +145,40 @@ Simulator = R6::R6Class(
       cbind(mm, bias, mse, coverage)
     },
     
+    #' @description
+    #' Takes the outcome of `get_sampler_params(fit)` and returns the count of
+    #' divergences in the sampling process.
     get_divergences = function(sampler_results) {
       sum(sapply(sampler_results, function(x) sum(x[, "divergent__"])))
+    },
+    
+    make_containers = function(results) {
+      # How many parameters are in the model
+      n_params = nrow(results$params)
+      # How many columns we put in the result matrix for each parameter.
+      n_col_params = ncol(results$params)
+      # How many rows we put in the results matrix for each parameter.
+      n_row_params = self$reps
+      
+      # Container for the summaries for the marginal posteriors
+      params = replicate(
+        n_params, 
+        matrix(
+          nrow = n_row_params, 
+          ncol = n_col_params,
+          dimnames = list(NULL, colnames(results$params))
+        ), 
+        simplify = FALSE
+      )
+      names(params) = rownames(results$params)
+      
+      # Information about the sampling process.
+      sampler = list(
+        divergences = vector("numeric", self$reps),
+        time = vector("numeric", self$reps)
+      )
+      
+      list("params" = params, "sampler" = sampler)
     }
   )
 )
@@ -178,20 +186,20 @@ Simulator = R6::R6Class(
 library(rstan)
 model = readRDS(here::here("models/model_1.rds"))
 
-generate_data = function(SIZE) {
-
-  x1 = rnorm(SIZE)
-  x2 = 0.35 + 0.15 * x1 + rnorm(SIZE)
-  x3 = 0.5 + 0.3 * x1 + 0.2 * x2 + rnorm(SIZE)
-  x4 = -0.7 + 0.2 * x1 + 0.1 * x3 + rnorm(SIZE)
+generate_data = function(size, params) {
+  
+  # This has to be a call to mvnorm
+  x1 = rnorm(size)
+  x2 = 0.35 + 0.15 * x1 + rnorm(size)
+  x3 = 0.5 + 0.3 * x1 + 0.2 * x2 + rnorm(size)
+  x4 = -0.7 + 0.2 * x1 + 0.1 * x3 + rnorm(size)
   
   X = cbind(x1, x2, x3, x4)
   X = scale(X)
-  b_true = c(2, 0.8, -1.5, -0.3)
-  sigma_true = 2
-  y = X %*% b_true + rnorm(SIZE, sd=sigma_true)
+  y = X %*% params$beta + rnorm(size, sd=params$sigma)
   g = nrow(X)
   Sigma = solve(t(X) %*% X)
+  
   list(
     n = nrow(X),
     p = ncol(X),
@@ -203,10 +211,32 @@ generate_data = function(SIZE) {
   )
 }
 
-pars = c("beta", "sigma")
-parsv = list("beta" = c(2, 0.8, -1.5, -0.3), "sigma" = 2)
-simulator = Simulator$new(model, pars, parsv, generate_data)
-simulator$simulate(30, 50)
+DataGenerator = R6::R6Class(
+  "Simulator",
+  public = list(
+    make_data = NULL,
+    params = NULL,
+    initialize = function(make_data, params) {
+      self$make_data = make_data
+      self$params = params
+    },
+    data = function(size) {
+      self$make_data(size, self$params)
+    }
+  )
+)
+
+params = list("beta" = c(2, 0.8, -1.5, -0.3), "sigma" = 2)
+generator = DataGenerator$new(generate_data, params)
+
+SIZES = c(20, 40, 60)
+REPS = 10
+
+simulator = Simulator$new(model, generator)
+simulator$make_plan(SIZES, REPS)
+results = simulator$simulate()
+
+
 
 # See `simulator$results`
 
