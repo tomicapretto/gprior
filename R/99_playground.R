@@ -3,7 +3,7 @@ library(here)
 library(loo)
 library(rstan)
 
-i=1
+i=2
 
 SIZE = 1000
 set.seed(1995)
@@ -32,8 +32,8 @@ data = list(
 )
 
 fit = sampling(
-  readRDS(here::here("models", paste0("model_", i, ".rds"))), 
-  data = data,
+  readRDS(here::here("models", paste0("model_", 7, ".rds"))), 
+  data = append(data, list(b_sd = 2.5)),
   refresh = 0
 )
 

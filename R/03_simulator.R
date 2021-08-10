@@ -5,7 +5,7 @@ between = function(x, l, r) {
   l < x & x < r
 }
 
-#' R6 Class Representing a Simulator
+#' Simulator R6 class
 #'
 #' @description
 #' This class wraps all the machinery to carry out simulations with a Stan
@@ -37,9 +37,10 @@ Simulator = R6::R6Class(
     },
     
     #' @description
-    #' Make simulating plan. 
-    #' @param sizes Sample sizes to use in the simulation.
-    #' @param reps Repetitions used with each sample size. Must be of the same size than sizes.      
+    #' Make a simulation plan. 
+    #' @param sizes Sample sizes for the simulation.
+    #' @param reps Repetitions for each sample size. Must be of the same size 
+    #'   than \code{sizes}.      
     make_plan = function(sizes, reps) {
       self$sizes = sizes
       self$reps = reps
@@ -74,8 +75,8 @@ Simulator = R6::R6Class(
     },
     
     #' @description
-    #' Simulate 'reps' repetitions for a sample of size 'size'.
-    #' @param size The size used in each of the repetitions.
+    #' Simulate \code{reps} repetitions for a sample of size \code{size}.
+    #' @param size The sample size used in each of the repetitions.
     #' @param reps The number of repetitions.
     simulate_for_size = function(size) {
       first = TRUE
@@ -95,7 +96,6 @@ Simulator = R6::R6Class(
         }
         # Append parameter summaries
         for (param in names(results$params)) {
-          
           results$params[[param]][i, ] = as.matrix(subset(outcome$params, variable == param)[-1])
         }
         
@@ -108,7 +108,8 @@ Simulator = R6::R6Class(
       return(results)
     },
     
-    # Main function
+    #' @description
+    #' Run simulation
     simulate = function() {
       if (!private$planned) stop("Plan the simulation first!!")
       results = lapply(self$sizes, self$simulate_for_size)
@@ -119,12 +120,24 @@ Simulator = R6::R6Class(
   private = list(
     planned = FALSE,
     
+    #' @description
+    #' Extract posterior samples from a fitted model.
+    #' 
+    #' This method only extracts the posterior samples for parameters in 
+    #' \code{self$params} and combines them into a matrix.
+    #' @param fit An object of class \code{stanfit}
     extract = function(fit) {
       x = do.call(cbind, extract(fit, pars = names(self$params)))
       colnames(x) = private$make_param_names()
       x
     },
     
+    #' @description
+    #' Make parameter names 
+    #' 
+    #' This method considers returns a character vector with names for the 
+    #' parameters in the matrix with the posterior samples. It can also handle
+    #' parameters with length larger than 1.
     make_param_names = function() {
       fun = function(name, value) {
         n = length(value)
@@ -137,9 +150,14 @@ Simulator = R6::R6Class(
       unname(unlist(mapply(fun, names(self$params), self$params)))
     },
     
+    #' @description
+    #' Get summaries for the parameters in the model.
+    #' 
+    #' @param fit An object of class \code{stanfit}.
     summarise_params = function(fit) {
-      # Compute summaries using 'posterior' functions
+      # Compute summaries using functions from the 'posterior' package.
       summary = private$summarise_draws(subset(as_draws(fit), names(self$params)))
+      
       # Sort according to parameter names
       summary = summary[match(private$make_param_names(), summary$variable), ]
       
@@ -149,7 +167,7 @@ Simulator = R6::R6Class(
       
       # Compute RMSE
       rmse = private$get_rmse(posterior, param_values)
-      # Compute ???
+      # Compute P(beta_posterior < beta_true)
       prob = private$get_prob(posterior, param_values)
       # Compute bias 
       bias = private$get_bias(posterior, param_values)
@@ -170,7 +188,7 @@ Simulator = R6::R6Class(
       summary
     },
     
-    
+    # TODO: What is this?
     get_coverage = function(draws, coef_true, probs) {
       # Probs is a list with vectors of length 2
       lapply(probs, function(x) {
@@ -178,38 +196,70 @@ Simulator = R6::R6Class(
       })
     },
     
-    
-    
-    get_rmse = function(draws, coef_true) {
-      sqrt(colMeans(sweep(draws, 2, coef_true, function(x, y) (x - y) ^ 2)))
+    #' @description
+    #' Compute RMSE (across posterior draws)
+    #' 
+    #' @param posterior A matrix with posterior samples. Each column represents
+    #'   a coefficient.
+    #' @param coef_true A vector with the true value of the coefficients in 
+    #'   the model.
+    get_rmse = function(posterior, coef_true) {
+      sqrt(colMeans(sweep(posterior, 2, coef_true, function(x, y) (x - y) ^ 2)))
     },
     
-    get_prob = function(draws, coef_true) {
-      # I dont remember the name of this quantity, P(beta_posterior < beta_true)
-      colMeans(sweep(draws, 2, coef_true, FUN = "<"))
+    #' @description
+    #' Compute P(beta_posterior < beta_true)
+    #' 
+    #' @param posterior A matrix with posterior samples. Each column represents
+    #'   a coefficient.
+    #' @param coef_true A vector with the true value of the coefficients in 
+    #'   the model.
+    get_prob = function(posterior, coef_true) {
+      # I dont remember the name of this quantity
+      colMeans(sweep(posterior, 2, coef_true, FUN = "<"))
     },
     
-    get_bias = function(draws, coef_true) {
-      colMeans(sweep(draws, 2, coef_true, FUN = "-"))
+    #' @description
+    #' Compute Bias (of the posterior mean)
+    #' 
+    #' @param posterior A matrix with posterior samples. Each column represents
+    #'   a coefficient.
+    #' @param coef_true A vector with the true value of the coefficients in 
+    #'   the model.
+    get_bias = function(posterior, coef_true) {
+      colMeans(sweep(posterior, 2, coef_true, FUN = "-"))
     },
-
+    
+    
+    #' @description
+    #' Get summaries from posterior draws.
+    #' 
+    #' This method wraps \code{summarise_draws} from \pkg{posterior}.
+    #' @param draws An object of class \code{draws} from \pkg{posterior}.
     summarise_draws = function(draws) {
       probs = c(0.025, 0.05, 0.1,  0.25, 0.75, 0.9, 0.95, 0.975)
       summarise_draws(draws, mean, sd, ess_bulk, rhat, ~quantile2(.x, probs))
     },
     
     #' @description
-    #' Takes the outcome of `get_sampler_params(fit)` and returns the count of
-    #' divergences in the sampling process.
+    #' Count the number of divergences in each simulation run.
+    #'
+    #' @param sampler_results The outcome of \code{get_sampler_params(fit)}.
     get_divergences = function(sampler_results) {
       sum(sapply(sampler_results, function(x) sum(x[, "divergent__"])))
     },
     
+    #' @description
+    #' Create objects that will contain the simulation results.
+    #'
+    #' @param results The outcome of a single simulation.
     make_containers = function(results) {
       # How many parameters are in the model
       n_params = nrow(results$params)
+      
       # How many columns we put in the result matrix for each parameter.
       n_col_params = ncol(results$params) - 1
+      
       # How many rows we put in the results matrix for each parameter.
       n_row_params = self$reps
       
@@ -248,7 +298,7 @@ generate_data = function(size, params) {
   
   X = cbind(x1, x2, x3, x4)
   X = scale(X)
-  y = X %*% params$beta + rnorm(size, sd=params$sigma)
+  y = X %*% params$beta + rnorm(size, sd = params$sigma)
   g = nrow(X)
   Sigma = solve(t(X) %*% X)
   
@@ -263,19 +313,40 @@ generate_data = function(size, params) {
   )
 }
 
-params = list("beta" = c(2, 0.8, -1.5, -0.3), "sigma" = 2)
+params = list(
+  "beta" = c(2, 0.8, -1.5, -0.3), 
+  "sigma" = 2
+)
 
+
+#' Generate data for particular simulation scenario
+#'
+#' @description
+#' This class contains a function to generate samples and the parameters 
+#' passed to that function. 
+#'
+#' @details
+#' I'm playing with R6 documentation :')
 DataGenerator = R6::R6Class(
   "Simulator",
   public = list(
-    make_data = NULL,
+    #' @field fun A function with arguments `size` and `params` that returns a 
+    #'  list that can be passed as the `data` arugment in `rstan::sampling()`.
+    #' @field params A list with all the values of the parameters that determine
+    #'  how the data are generated. This does not contain the sample size.
+    fun = NULL,
     params = NULL,
-    initialize = function(make_data, params) {
-      self$make_data = make_data
+    
+    initialize = function(fun, params) {
+      self$fun = fun
       self$params = params
     },
+    
+    #' @description
+    #' Obtain a random sample using `self$fun()`.
+    #' @param size The size of the random sample.
     data = function(size) {
-      self$make_data(size, self$params)
+      self$fun(size, self$params)
     }
   )
 )
@@ -289,24 +360,14 @@ simulator = Simulator$new(model, generator)
 simulator$make_plan(SIZES, REPS)
 results = simulator$simulate()
 
-# See `simulator$results`
+results
 
 # model@mode -> must be 0 to indicate it sampled.
-
-## Notes
-# * Bias: is actually the bias of the posterior mean.
-# * MSE: same than above
-# * Coverage: It is 1 if the true value of the param is contained in the 95% PI.
-# * yhat?
-# * RMSE?
 
 ## Things to add
 # yhat -> mu = X %*% beta, where beta is a (vector) draw from the posterior
 #         sd = The one obtained from the posterior.
 #         rnorm(1, mu, sd)
-# RMSE -> sqrt(mean((yhat - y) ^ 2)) for each posterior sample
-#         Then I have a posterior of the RMSE, same for MSE, etc
 
 # Cross validation
-
 # See https://discourse.mc-stan.org/t/bayesian-rmse/13293/4
