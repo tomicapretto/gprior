@@ -32,11 +32,14 @@ StanModelCode = R6::R6Class(
     remove_block = function(block) {
       self$model[[block]] = NULL
     },
-    
     sort_blocks = function() {
-      new_pos = match(private$order, names(self$model))
+      new_pos = match(private$BLOCK_ORDER, names(self$model))
       new_pos = new_pos[!is.na(new_pos)]
       self$model = self$model[new_pos]
+    },
+    sort_lines = function() {
+      
+      
     },
     make_stan_code = function() {
       code_list = mapply(
@@ -48,7 +51,11 @@ StanModelCode = R6::R6Class(
             SIMPLIFY = FALSE
           )
           str = as.character(str)
-          glue("{block_name} {{\n{paste0('  ', str, collapse = '\n')}\n}}")
+          paste0(
+            block_name, " {\n",
+            paste0(add_space(split_lines(str)), collapse = "\n"),
+            "\n}"
+          )
         }, 
         names(self$model),
         self$model,
@@ -59,7 +66,7 @@ StanModelCode = R6::R6Class(
   ),
   private = list(
     
-    order = c(
+    BLOCK_ORDER = c(
       "data", "parameters", "transformed parameters", "model", 
       "generated quantities"
     ),
@@ -89,9 +96,11 @@ StanModelCode = R6::R6Class(
       } else if (props$type == "matrix") {
         str = glue::glue("matrix[{props$rows}, {props$cols}]{bounds} {name}")
       } else if (props$type == "assignment") {
-        str = glue::glue("{name} {props$expr}")
+        str = glue::glue("{name} = {props$expr}")
       } else if (props$type == "dist") {
         str = glue("{name} ~ {props$dist}({paste0(props$args, collapse = ', ')})")
+      } else if (props$type == "loop") {
+        return(private$make_loop(props$var, props$seq, props$expr))
       } else {
         stop("Unrecognized data type ", props$type)
       }
@@ -99,9 +108,32 @@ StanModelCode = R6::R6Class(
       if ("assignment" %in% names(props)) {
         str = glue("{str} = {props$assignment}")
       }
+      
       paste0(str, ";")
+    },
+    
+    make_loop = function(var, seq, expr) {
+      expr = private$make_line(expr$name, expr$props)
+      glue(
+        "for ({var} in {seq}) {{
+          {expr}
+        }}"
+      )
     }
+
   )
 )
 
+split_lines = function(string) {
+  unlist(strsplit(string, "\n", fixed = TRUE))
+}
+
+add_space = function(string, n = 2) {
+  space = paste0(rep(" ", n), collapse = "")
+  paste0(space, string)
+}
+# var = "n"
+# seq = "1:N"
+# expr = "x + y"
+# cat(paste(glue("for ({var} in {seq}) {{"), add_space(expr), "}", sep = "\n"))
 

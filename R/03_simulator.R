@@ -240,7 +240,6 @@ library(rstan)
 model = readRDS(here::here("models/model_1.rds"))
 
 generate_data = function(size, params) {
-  
   # This has to be a call to mvnorm
   x1 = rnorm(size)
   x2 = 0.35 + 0.15 * x1 + rnorm(size)
@@ -264,6 +263,8 @@ generate_data = function(size, params) {
   )
 }
 
+params = list("beta" = c(2, 0.8, -1.5, -0.3), "sigma" = 2)
+
 DataGenerator = R6::R6Class(
   "Simulator",
   public = list(
@@ -279,7 +280,6 @@ DataGenerator = R6::R6Class(
   )
 )
 
-params = list("beta" = c(2, 0.8, -1.5, -0.3), "sigma" = 2)
 generator = DataGenerator$new(generate_data, params)
 
 SIZES = c(20, 40, 60)
@@ -288,9 +288,6 @@ REPS = 10
 simulator = Simulator$new(model, generator)
 simulator$make_plan(SIZES, REPS)
 results = simulator$simulate()
-
-
-
 
 # See `simulator$results`
 
