@@ -18,8 +18,12 @@ model {
   sigma ~ student_t(4, 0, sd(y));
 }
 generated quantities {
-  real sigma_p = fabs(student_t_rng(4, 0, sd(y)));
-  real g_p = fabs(student_t_rng(3, 0, 4));
-  vector[p] beta_p = multi_normal_rng(mu_b, g_p * pow(sigma_p, 2) * mu_Sigma);
-  real y_p[n] = normal_rng(to_vector(X * beta_p), sigma_p);
+  real<lower=0> sigma_p = fabs(student_t_rng(4, 0, sd(y)));
+  real<lower=0> g_p = fabs(student_t_rng(3, 0, 4));
+  vector[p] beta_p = multi_normal_rng(mu_b, g_p * pow(sigma_p, 2) * mu_Sigma);;
+  array[n] real y_p = normal_rng(to_vector(X * beta_p), sigma_p);
+  vector[n] log_lik;
+  for (i in 1:n) {
+    log_lik[i] = normal_lpdf(y[i] | X[i] * beta, sigma);
+  }
 }

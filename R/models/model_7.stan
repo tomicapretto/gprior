@@ -1,10 +1,10 @@
 data {
   int n;
   int p;
+  real<lower=0> b_sd;
   vector[n] y;
   vector[p] mu_b;
   matrix[n, p] X;
-  real<lower=0> b_sd;
 }
 parameters {
   vector[p] beta;
@@ -17,6 +17,10 @@ model {
 }
 generated quantities {
   real<lower=0> sigma_p = exponential_rng(1 / sd(y));
-  real beta_p[p] = normal_rng(mu_b, b_sd * sd(y));
-  real y_p[n] = normal_rng(to_vector(X * to_vector(beta_p)), sigma_p);
+  array[p] real beta_p = normal_rng(mu_b, b_sd * sd(y));
+  array[n] real y_p = normal_rng(to_vector(X * to_vector(beta_p)), sigma_p);
+  vector[n] log_lik;
+  for (i in 1:n) {
+    log_lik[i] = normal_lpdf(y[i] | X[i] * beta, sigma);
+  }
 }
