@@ -164,4 +164,4 @@ ggplot(rbind(posterior_exact,posterior_trace)) +
     legend.title = element_blank()
   )
 
-ggsave("plots/model_0_posterior.png", height = 8, width = 5)
+ggsave("00_theoretical_posterior/posterior.png", height = 8, width = 5)

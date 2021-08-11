@@ -1,9 +1,6 @@
 library(posterior)
 library(rstan)
-
-between = function(x, l, r) {
-  l < x & x < r
-}
+source("utils.R")
 
 #' Simulator R6 class
 #'

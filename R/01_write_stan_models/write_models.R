@@ -1,5 +1,6 @@
 library(rstan)
-source(here::here("01_stan_code_atoms.R"))
+library(here)
+source(here("01_write_stan_models/01_stan_code_atoms.R"))
 
 write_model = function(program, path) {
   code = program$write()
@@ -56,7 +57,7 @@ program = StanProgram$new(
   )
 )
 
-write_model(program, here::here("models", "model_1"))
+write_model(program, here("models", "model_1"))
 
 # Model 2 -----------------------------------------------------------------
 # g = n, sigma ~ exponential(1/sd(y))
@@ -107,7 +108,7 @@ program = StanProgram$new(
   )
 )
 
-write_model(program, here::here("models", "model_2"))
+write_model(program, here("models", "model_2"))
 
 # Model 3 -----------------------------------------------------------------
 # g = n, sigma ~ student_t(nu=4, sigma=sd(y))
@@ -158,7 +159,7 @@ program = StanProgram$new(
   )
 )
 
-write_model(program, here::here("models", "model_3"))
+write_model(program, here("models", "model_3"))
 
 # Model 4 -----------------------------------------------------------------
 # g ~ student_t(3, 0, 4), log(sigma) ~ uniform
@@ -201,7 +202,7 @@ program = StanProgram$new(
     )
   )
 )
-write_model(program, here::here("models", "model_4"))
+write_model(program, here("models", "model_4"))
 
 # Model 5 -----------------------------------------------------------------
 # g ~ student_t(3, 0, 4), sigma ~ exp(1 / sd(y))
@@ -258,7 +259,7 @@ program = StanProgram$new(
     )
   )
 )
-write_model(program, here::here("models", "model_5"))
+write_model(program, here("models", "model_5"))
 
 
 # Model 6 -----------------------------------------------------------------
@@ -310,7 +311,7 @@ program = StanProgram$new(
     )
   )
 )
-write_model(program, here::here("models", "model_6"))
+write_model(program, here("models", "model_6"))
 
 
 # Model 7 -----------------------------------------------------------------
@@ -357,7 +358,7 @@ program = StanProgram$new(
     )
   )
 )
-write_model(program, here::here("models", "model_7"))
+write_model(program, here("models", "model_7"))
 
 # Model 8 -----------------------------------------------------------------
 # Flat priors everywhere!
@@ -385,4 +386,4 @@ program = StanProgram$new(
     )
   )
 )
-write_model(program, here::here("models", "model_8"))
+write_model(program, here("models", "model_8"))
