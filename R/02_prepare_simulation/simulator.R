@@ -1,6 +1,7 @@
 library(posterior)
 library(rstan)
-source("utils.R")
+library(here)
+source(here("utils", "utils.R"))
 
 #' Simulator R6 class
 #'
@@ -282,82 +283,6 @@ Simulator = R6::R6Class(
     }
   )
 )
-
-library(rstan)
-model = readRDS(here::here("models/model_1.rds"))
-
-generate_data = function(size, params) {
-  # This has to be a call to mvnorm
-  x1 = rnorm(size)
-  x2 = 0.35 + 0.15 * x1 + rnorm(size)
-  x3 = 0.5 + 0.3 * x1 + 0.2 * x2 + rnorm(size)
-  x4 = -0.7 + 0.2 * x1 + 0.1 * x3 + rnorm(size)
-  
-  X = cbind(x1, x2, x3, x4)
-  X = scale(X)
-  y = X %*% params$beta + rnorm(size, sd = params$sigma)
-  g = nrow(X)
-  Sigma = solve(t(X) %*% X)
-  
-  list(
-    n = nrow(X),
-    p = ncol(X),
-    g = nrow(X),
-    y = as.vector(y),
-    X = X,
-    mu_Sigma = Sigma,
-    mu_b = rep(0, 4)
-  )
-}
-
-params = list(
-  "beta" = c(2, 0.8, -1.5, -0.3), 
-  "sigma" = 2
-)
-
-
-#' Generate data for particular simulation scenario
-#'
-#' @description
-#' This class contains a function to generate samples and the parameters 
-#' passed to that function. 
-#'
-#' @details
-#' I'm playing with R6 documentation :')
-DataGenerator = R6::R6Class(
-  "Simulator",
-  public = list(
-    #' @field fun A function with arguments `size` and `params` that returns a 
-    #'  list that can be passed as the `data` arugment in `rstan::sampling()`.
-    #' @field params A list with all the values of the parameters that determine
-    #'  how the data are generated. This does not contain the sample size.
-    fun = NULL,
-    params = NULL,
-    
-    initialize = function(fun, params) {
-      self$fun = fun
-      self$params = params
-    },
-    
-    #' @description
-    #' Obtain a random sample using `self$fun()`.
-    #' @param size The size of the random sample.
-    data = function(size) {
-      self$fun(size, self$params)
-    }
-  )
-)
-
-generator = DataGenerator$new(generate_data, params)
-
-SIZES = c(20, 40, 60)
-REPS = 10
-
-simulator = Simulator$new(model, generator)
-simulator$make_plan(SIZES, REPS)
-results = simulator$simulate()
-
-results
 
 # model@mode -> must be 0 to indicate it sampled.
 
