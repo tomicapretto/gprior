@@ -8,7 +8,6 @@
 mvrnorm = function(mu, sigma, rho, n = 1) {
   # Omega: Correlation matrix
   # Sigma: Covariance matrix
-  
   Omega = matrix(rho, length(mu), length(mu)) # p * p
   diag(Omega) = 1
   
